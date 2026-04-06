@@ -1,24 +1,20 @@
 blueprint:
-  name: View Assist - Play Radio with Music Assistant (UI Aliases, manual Command + Announcement)
+  name: View Assist - Play Radio with Music Assistant (UI aliases, abort if not found)
   description: >-
     Play radio stations from your Music Assistant server via View Assist.
 
-    This keeps the original manual Command and Announcement fields, but replaces
-    the Station ID field with a UI alias list.
+    This blueprint keeps the original manual Command and Announcement fields,
+    but replaces the Station ID field with a UI alias list.
 
-    Important: To use aliases, the Command field must contain the slot
-    {station_name}.
+    Important:
+    - To use aliases, the Command field must contain {station_name}.
+    - If no matching alias is found, the automation stops immediately and does
+      not play anything or send a conversation response.
 
-    Examples:
-      play {station_name}
-      play radio {station_name}
-      (play [radio] {station_name} | listen to [radio] {station_name})
+    Suggested English command:
+      (start | play | listen) [to] radio [station] {station_name}
 
-    Announcement can contain {station}. If left empty, a translated default
-    response is used.
-
-    In Station aliases, add one row per spoken alias. Multiple aliases may point
-    to the same Music Assistant media_id.
+    Multiple aliases may point to the same Music Assistant media_id.
   domain: automation
   input:
     language:
@@ -32,15 +28,15 @@ blueprint:
     command:
       name: Command
       description: >-
-        The phrase used to start a radio station.
-        Use {station_name} as the placeholder for the spoken station name..
-        Example: (play {station_name} | listen to {station_name})
-      default: "(play {station_name} | listen to {station_name})"
+        The phrase pattern used to start a radio station.
+        It must include {station_name}.
+        Example: (start | play | listen) [to] radio [station] {station_name}
+      default: "(start | play | listen) [to] radio [station] {station_name}"
 
     announce:
       name: Announcement
       description: >-
-        The phrase you want to hear when you start your station.
+        The phrase you want to hear when a station starts.
         You can use {station}. Leave empty for the default response.
       default: ""
 
@@ -48,13 +44,7 @@ blueprint:
       name: Station aliases
       description: >-
         Add one row per spoken alias.
-        Example:
-        - alias: radiobob
-          media_id: library://radio/123
-          station_name: Radio Bob
-        - alias: bob
-          media_id: library://radio/123
-          station_name: Radio Bob
+        You can map multiple aliases to the same media_id.
       default: []
       selector:
         object:
@@ -85,7 +75,7 @@ blueprint:
 trigger:
   - platform: conversation
     command: !input command
-    id: playtunein
+    id: playradio
 
 condition: []
 
@@ -141,23 +131,18 @@ action:
         en:
           responses:
             playing_station: "Playing {station}"
-            station_not_found: "Sorry, I could not find a station for {station}"
         de:
           responses:
             playing_station: "Spiele {station}"
-            station_not_found: "Entschuldigung, ich konnte keinen Sender für {station} finden"
         nl:
           responses:
             playing_station: "{station} afspelen"
-            station_not_found: "Sorry, ik kon geen zender vinden voor {station}"
         pt:
           responses:
             playing_station: "Tocando {station}"
-            station_not_found: "Desculpe, não encontrei uma estação para {station}"
         ro:
           responses:
             playing_station: "Redau {station}"
-            station_not_found: "Îmi pare rău, nu am găsit un post pentru {station}"
 
       announce_default: >-
         {{ translations[language]['responses']['playing_station'].replace('{station}', station_display_name) }}
@@ -166,56 +151,40 @@ action:
         {% set custom = announce_input | string %}
         {{ custom.replace('{station}', station_display_name) if custom | trim != '' else announce_default }}
 
-      announce_not_found: >-
-        {{ translations[language]['responses']['station_not_found'].replace('{station}', spoken_station_raw | trim) }}
+  - if:
+      - condition: template
+        value_template: "{{ station | string | trim != '' }}"
+    then:
+      - service: music_assistant.play_media
+        target:
+          entity_id: "{{ target_musicplayer_device }}"
+        data:
+          media_id: "{{ station }}"
 
-  - choose:
-      - conditions:
-          - condition: trigger
-            id:
-              - playtunein
-          - condition: template
-            value_template: "{{ station | trim != '' }}"
-        sequence:
-          - service: music_assistant.play_media
-            target:
-              entity_id: "{{ target_musicplayer_device }}"
-            data:
-              media_id: "{{ station }}"
-          - if:
-              - condition: template
-                value_template: "{{ target_use_announce is not false }}"
-            then:
-              - set_conversation_response: "{{ announce }}"
-              - action: view_assist.set_state
-                target:
-                  entity_id: "{{ target_satellite_device }}"
-                data:
-                  last_said: "{{ announce }}"
-            else:
-              - set_conversation_response: ""
-          - action: view_assist.set_state
-            target:
-              entity_id: "{{ target_satellite_device }}"
-            data:
-              mode: music
-              title: ""
-              message_font_size: "5vw"
-          - action: view_assist.navigate
-            data:
-              device: "{{ target_satellite_device }}"
-              path: "{{ view_path }}"
-
-    default:
       - if:
           - condition: template
             value_template: "{{ target_use_announce is not false }}"
         then:
-          - set_conversation_response: "{{ announce_not_found }}"
+          - set_conversation_response: "{{ announce }}"
           - action: view_assist.set_state
             target:
               entity_id: "{{ target_satellite_device }}"
             data:
-              last_said: "{{ announce_not_found }}"
+              last_said: "{{ announce }}"
         else:
           - set_conversation_response: ""
+
+      - action: view_assist.set_state
+        target:
+          entity_id: "{{ target_satellite_device }}"
+        data:
+          mode: music
+          title: ""
+          message_font_size: "5vw"
+
+      - action: view_assist.navigate
+        data:
+          device: "{{ target_satellite_device }}"
+          path: "{{ view_path }}"
+    else:
+      - stop: "No matching radio alias found. Stop radio automation so another automation can handle the sentence."
