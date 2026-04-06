@@ -1,0 +1,221 @@
+blueprint:
+  name: View Assist - Play Radio with Music Assistant (UI Aliases, manual Command + Announcement)
+  description: >-
+    Play radio stations from your Music Assistant server via View Assist.
+
+    This keeps the original manual Command and Announcement fields, but replaces
+    the Station ID field with a UI alias list.
+
+    Important: To use aliases, the Command field must contain the slot
+    {station_name}.
+
+    Examples:
+      play {station_name}
+      play radio {station_name}
+      (play [radio] {station_name} | listen to [radio] {station_name})
+
+    Announcement can contain {station}. If left empty, a translated default
+    response is used.
+
+    In Station aliases, add one row per spoken alias. Multiple aliases may point
+    to the same Music Assistant media_id.
+  domain: automation
+  input:
+    language:
+      name: Language
+      description: The desired spoken language
+      default: en
+      selector:
+        language:
+          languages: [de, en, nl, pt, ro]
+
+    command:
+      name: Command
+      description: >-
+        The phrase used to start a radio station.
+        Use {station_name} as the placeholder for the spoken station name..
+        Example: (play {station_name} | listen to {station_name})
+      default: "(play {station_name} | listen to {station_name})"
+
+    announce:
+      name: Announcement
+      description: >-
+        The phrase you want to hear when you start your station.
+        You can use {station}. Leave empty for the default response.
+      default: ""
+
+    station_aliases:
+      name: Station aliases
+      description: >-
+        Add one row per spoken alias.
+        Example:
+        - alias: radiobob
+          media_id: library://radio/123
+          station_name: Radio Bob
+        - alias: bob
+          media_id: library://radio/123
+          station_name: Radio Bob
+      default: []
+      selector:
+        object:
+          label_field: alias
+          description_field: media_id
+          multiple: true
+          fields:
+            alias:
+              label: Spoken alias
+              required: true
+              selector:
+                text:
+            media_id:
+              label: Station ID / media_id
+              required: true
+              selector:
+                text:
+            station_name:
+              label: Friendly station name (optional)
+              selector:
+                text:
+
+    view_path:
+      name: Dashboard Music view
+      description: The View Assist dashboard view to use for displaying music information (example /dashboard-viewassist/music)
+      default: /view-assist/music
+
+trigger:
+  - platform: conversation
+    command: !input command
+    id: playtunein
+
+condition: []
+
+action:
+  - variables:
+      target_satellite_device: "{{ view_assist_entity(trigger.device_id) }}"
+      target_mediaplayer_device: "{{ state_attr(target_satellite_device, 'mediaplayer_device')}}"
+      target_satellite_device_type: "{{ state_attr(target_satellite_device, 'type')}}"
+      target_musicplayer_device: "{{ state_attr(target_satellite_device, 'musicplayer_device') }}"
+      target_use_announce: "{{ state_attr(target_satellite_device, 'use_announce') }}"
+      view_path: !input view_path
+      announce_input: !input announce
+      language: !input language
+      station_aliases: !input station_aliases
+
+      spoken_station_raw: >-
+        {% if trigger.details is defined and trigger.details.station_name is defined and trigger.details.station_name.text is defined %}
+          {{ trigger.details.station_name.text }}
+        {% elif trigger.slots is defined and trigger.slots.station_name is defined %}
+          {{ trigger.slots.station_name }}
+        {% else %}
+          
+        {% endif %}
+
+      spoken_station_key: >-
+        {{ spoken_station_raw | string | lower | trim | regex_replace('\\s+', ' ') }}
+
+      matched_station: >-
+        {% set ns = namespace(match={}) %}
+        {% if station_aliases is iterable %}
+          {% for entry in station_aliases %}
+            {% if entry is mapping %}
+              {% set alias = entry.get('alias', '') | string | lower | trim | regex_replace('\\s+', ' ') %}
+              {% if alias == spoken_station_key and ns.match == {} %}
+                {% set ns.match = entry %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.match }}
+
+      station: >-
+        {{ matched_station.get('media_id', '') if matched_station is mapping else '' }}
+
+      station_display_name: >-
+        {% if matched_station is mapping and matched_station.get('station_name', '') | string | trim != '' %}
+          {{ matched_station.get('station_name') }}
+        {% else %}
+          {{ spoken_station_raw | trim }}
+        {% endif %}
+
+      translations:
+        en:
+          responses:
+            playing_station: "Playing {station}"
+            station_not_found: "Sorry, I could not find a station for {station}"
+        de:
+          responses:
+            playing_station: "Spiele {station}"
+            station_not_found: "Entschuldigung, ich konnte keinen Sender für {station} finden"
+        nl:
+          responses:
+            playing_station: "{station} afspelen"
+            station_not_found: "Sorry, ik kon geen zender vinden voor {station}"
+        pt:
+          responses:
+            playing_station: "Tocando {station}"
+            station_not_found: "Desculpe, não encontrei uma estação para {station}"
+        ro:
+          responses:
+            playing_station: "Redau {station}"
+            station_not_found: "Îmi pare rău, nu am găsit un post pentru {station}"
+
+      announce_default: >-
+        {{ translations[language]['responses']['playing_station'].replace('{station}', station_display_name) }}
+
+      announce: >-
+        {% set custom = announce_input | string %}
+        {{ custom.replace('{station}', station_display_name) if custom | trim != '' else announce_default }}
+
+      announce_not_found: >-
+        {{ translations[language]['responses']['station_not_found'].replace('{station}', spoken_station_raw | trim) }}
+
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - playtunein
+          - condition: template
+            value_template: "{{ station | trim != '' }}"
+        sequence:
+          - service: music_assistant.play_media
+            target:
+              entity_id: "{{ target_musicplayer_device }}"
+            data:
+              media_id: "{{ station }}"
+          - if:
+              - condition: template
+                value_template: "{{ target_use_announce is not false }}"
+            then:
+              - set_conversation_response: "{{ announce }}"
+              - action: view_assist.set_state
+                target:
+                  entity_id: "{{ target_satellite_device }}"
+                data:
+                  last_said: "{{ announce }}"
+            else:
+              - set_conversation_response: ""
+          - action: view_assist.set_state
+            target:
+              entity_id: "{{ target_satellite_device }}"
+            data:
+              mode: music
+              title: ""
+              message_font_size: "5vw"
+          - action: view_assist.navigate
+            data:
+              device: "{{ target_satellite_device }}"
+              path: "{{ view_path }}"
+
+    default:
+      - if:
+          - condition: template
+            value_template: "{{ target_use_announce is not false }}"
+        then:
+          - set_conversation_response: "{{ announce_not_found }}"
+          - action: view_assist.set_state
+            target:
+              entity_id: "{{ target_satellite_device }}"
+            data:
+              last_said: "{{ announce_not_found }}"
+        else:
+          - set_conversation_response: ""
