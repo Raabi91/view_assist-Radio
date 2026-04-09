@@ -1,5 +1,5 @@
 blueprint:
-  name: View Assist - Play Radio with Music Assistant Hybrid Version
+  name: View Assist - Play Radio with Music Assistant Hybrid
   description: >-
     Play radio stations from your Music Assistant server with backward-compatible
     support for the original fixed station setup and optional alias-based spoken
