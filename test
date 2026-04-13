@@ -1,0 +1,199 @@
+# Play Radio with Music Assistant
+
+Play radio stations with View Assist using Music Assistant.
+
+This blueprint supports both:
+
+- **Legacy commands** using a fixed station ID
+- **Alias-based commands** using `{station_name}`
+
+The updated logic is designed to stay compatible with older automations while making new setups much easier to configure.
+
+## Requirements
+
+- Music Assistant server installed and integrated with Home Assistant
+- A Music Assistant player configured for your View Assist satellite
+- The `musicplayer_device` added to your View Assist device configuration as described in the wiki
+- At least one radio station available in Music Assistant
+- Optional: aliases configured if you want to use spoken station names
+
+## What changed in v1.3.0
+
+- Added support for **alias-based station matching**
+- Kept compatibility with the original fixed-station setup
+- Simplified the internal logic
+- Removed the extra mode handling
+- Prevents playing the wrong fallback station when using alias-based radio commands
+- Added a more user-friendly UI for entering station aliases
+
+## How it works
+
+The blueprint now decides automatically which path to use:
+
+### Legacy path
+
+If your command does **not** contain `{station_name}`, the blueprint uses the configured fixed station ID.
+
+This keeps older automations working as before.
+
+### Alias path
+
+If your command **does** contain `{station_name}`, the blueprint will:
+
+1. Read the spoken station name
+2. Try to match it against the configured alias list
+3. Play the matching station if found
+4. Stop immediately if no alias matches
+
+This avoids accidentally playing the wrong station.
+
+## Installation
+
+### 1. Import the blueprint
+
+Import the blueprint into Home Assistant from GitHub or paste the YAML manually.
+
+### 2. Create an automation
+
+Go to:
+
+`Settings -> Automations & Scenes -> Automations`
+
+Then:
+
+1. Create a new automation
+2. Choose **Use Blueprint**
+3. Select **Play Radio with Music Assistant**
+
+## Configuration
+
+### Language
+
+Select the language used for responses.
+
+### Command
+
+This is the sentence pattern View Assist will listen for.
+
+You can continue using a legacy fixed command, or switch to the new alias-based format.
+
+#### Legacy example
+
+`play BBC One`
+
+#### Alias-based example
+
+`(start | play | listen) [to] radio [station] {station_name}`
+
+If you want to use aliases, your command must include `{station_name}`.
+
+> Add screenshot here
+
+### Station
+
+This is the fixed Music Assistant station ID used by the legacy path.
+
+It is only used when your command does **not** contain `{station_name}`.
+
+> Add screenshot here
+
+### Station aliases
+
+This is the new alias-based configuration.
+
+Each entry lets you define:
+
+- a spoken alias
+- the real Music Assistant station ID
+- an optional display/station name
+
+Example:
+
+- alias: `rock antenna`
+- station_id: `radio_browser://...`
+- station_name: `Rock Antenne`
+
+- alias: `bayern 3`
+- station_id: `radio_browser://...`
+- station_name: `Bayern 3`
+
+If your command contains `{station_name}`, the blueprint will use this alias list instead of the fixed station.
+
+> Add screenshot here
+
+### Announcement
+
+Optional custom announcement spoken before playback starts.
+
+> Add screenshot here
+
+### Music view
+
+Optional dashboard/music view path used by View Assist.
+
+> Add screenshot here
+
+## How to find the station ID
+
+Open Music Assistant and go to the radio section.
+
+Find the station you want to use and copy the station ID exactly as shown in Music Assistant.
+
+> Add screenshot here
+
+## Example setups
+
+### Example 1: Legacy command
+
+Command:
+
+`play BBC One`
+
+Behavior:
+
+- No `{station_name}` is present
+- The blueprint uses the fixed configured station ID
+
+### Example 2: Alias-based command
+
+Command:
+
+`play radio rock antenna`
+
+Behavior:
+
+- `{station_name}` is present
+- The blueprint looks for `rock antenna` in the alias list
+- If found, it plays the matching station
+
+### Example 3: Unknown alias
+
+Command:
+
+`play radio unknown station`
+
+Behavior:
+
+- `{station_name}` is present
+- No alias match is found
+- The blueprint stops and does not play the fixed fallback station
+
+## Notes
+
+- Existing automations should continue to work as long as they keep using the original fixed-station style command
+- To use the new alias-based behavior, update the command so it includes `{station_name}`
+- Alias-based commands are safer because they prevent the wrong default station from being played
+- The alias UI is easier to configure than raw YAML lists or dictionaries
+
+## Changelog
+
+| Version | Description |
+|--------:|-------------|
+| 1.3.0 | Added alias-based station matching, improved UI configuration, simplified logic, preserved legacy compatibility |
+| 1.2.1 | Add translations |
+| 1.2.0 | Various improvements |
+| 1.1.0 | Various improvements |
+| 1.0.3 | Bug fix plus add ability to have custom announcement |
+| 1.0.2 | Update to use conditional response |
+| 1.0.1 | Update to use `music_assistant` action |
+| 1.0.0 | Initial release |
